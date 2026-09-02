@@ -1,0 +1,17 @@
+apiVersion: migration.sapps.co/v1alpha1
+kind: Task32CLIProxyRuntimeContract
+metadata: {name: cliproxy-api}
+spec:
+  evidenceState: STATIC_PREPARATION_ONLY
+  objectStore:
+    credentialModes: [static-v4-legacy, eks-pod-identity]
+    eksPodIdentityEnvironment: [AWS_CONTAINER_CREDENTIALS_FULL_URI, AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE]
+    requiredRemoteConfigFlag: OBJECTSTORE_REQUIRE_REMOTE_CONFIG
+    requiredObject: config/config.yaml
+    missingObjectBehavior: process-exits-before-api-server
+  compatibility:
+    modelCatalogs: [internal/registry/models/models.json, internal/registry/models/codex_client_models.json]
+    aliasTests: [sdk/cliproxy/auth/oauth_model_alias_test.go, sdk/cliproxy/auth/api_key_model_alias_test.go, sdk/cliproxy/service_oauth_model_alias_test.go]
+    apiPaths: [/v1/models, /v1/chat/completions, /v1/responses]
+    managementPrefix: /v0/management
+  activation: {deploymentOwnedBy: sapps-gitops, requiredGate: T41_LIVE_APPROVAL}

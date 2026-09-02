@@ -16,8 +16,6 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 )
@@ -29,15 +27,16 @@ const (
 
 // ObjectStoreConfig captures configuration for the object storage-backed token store.
 type ObjectStoreConfig struct {
-	Endpoint  string
-	Bucket    string
-	AccessKey string
-	SecretKey string
-	Region    string
-	Prefix    string
-	LocalRoot string
-	UseSSL    bool
-	PathStyle bool
+	Endpoint            string
+	Bucket              string
+	AccessKey           string
+	SecretKey           string
+	Region              string
+	Prefix              string
+	LocalRoot           string
+	UseSSL              bool
+	PathStyle           bool
+	RequireRemoteConfig bool
 }
 
 // ObjectTokenStore persists configuration and authentication metadata using an S3-compatible object storage backend.
@@ -65,11 +64,9 @@ func NewObjectTokenStore(cfg ObjectStoreConfig) (*ObjectTokenStore, error) {
 	if cfg.Bucket == "" {
 		return nil, fmt.Errorf("object store: bucket is required")
 	}
-	if cfg.AccessKey == "" {
-		return nil, fmt.Errorf("object store: access key is required")
-	}
-	if cfg.SecretKey == "" {
-		return nil, fmt.Errorf("object store: secret key is required")
+	credentialProvider, err := objectStoreCredentials(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	root := strings.TrimSpace(cfg.LocalRoot)
@@ -96,7 +93,7 @@ func NewObjectTokenStore(cfg ObjectStoreConfig) (*ObjectTokenStore, error) {
 	}
 
 	options := &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Creds:  credentialProvider,
 		Secure: cfg.UseSSL,
 		Region: cfg.Region,
 	}
@@ -356,19 +353,8 @@ func (s *ObjectTokenStore) syncConfigFromBucket(ctx context.Context, example str
 			return fmt.Errorf("object store: write config: %w", errWrite)
 		}
 	case isObjectNotFound(err):
-		if _, statErr := os.Stat(s.configPath); errors.Is(statErr, fs.ErrNotExist) {
-			if example != "" {
-				if errCopy := misc.CopyConfigTemplate(example, s.configPath); errCopy != nil {
-					return fmt.Errorf("object store: copy example config: %w", errCopy)
-				}
-			} else {
-				if errCreate := os.MkdirAll(filepath.Dir(s.configPath), 0o700); errCreate != nil {
-					return fmt.Errorf("object store: prepare config directory: %w", errCreate)
-				}
-				if errWrite := os.WriteFile(s.configPath, []byte{}, 0o600); errWrite != nil {
-					return fmt.Errorf("object store: create empty config: %w", errWrite)
-				}
-			}
+		if errInit := initializeMissingRemoteConfig(s.configPath, example, s.cfg.RequireRemoteConfig); errInit != nil {
+			return errInit
 		}
 		data, errRead := os.ReadFile(s.configPath)
 		if errRead != nil {
